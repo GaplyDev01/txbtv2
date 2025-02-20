@@ -1,48 +1,44 @@
 import { useEffect, useState } from 'react';
-import { BitqueryWebSocket } from '../lib/websocket';
 
-export const usePriceFeed = (token: string) => {
+export const usePriceFeed = () => {
   const [price, setPrice] = useState<number | null>(null);
+  const [change24h, setChange24h] = useState<number | null>(null);
   const [timestamp, setTimestamp] = useState<number | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handlePriceUpdate = (newPrice: number, newTimestamp: number) => {
-    setPrice(newPrice);
-    setTimestamp(newTimestamp);
+  const fetchPrice = async () => {
+    try {
+      const response = await fetch('/api/price');
+      if (!response.ok) {
+        throw new Error('Failed to fetch price');
+      }
+      const data = await response.json();
+      setPrice(data.price);
+      setChange24h(data.change24h);
+      setTimestamp(data.timestamp);
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to fetch price');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
-    let ws: BitqueryWebSocket | null = null;
-
-    const connect = async () => {
-      setError(null);
-      setIsConnecting(true);
-      ws = new BitqueryWebSocket(token, handlePriceUpdate);
-
-      try {
-        ws.connect()
-          .then(() => {
-            setIsConnecting(false);
-          })
-          .catch((error) => {
-            setError(error.message);
-            setIsConnecting(false);
-          });
-      } catch (error) {
-        setError(error instanceof Error ? error.message : 'Failed to connect');
-        setIsConnecting(false);
-      }
+    const updatePrice = () => {
+      setIsLoading(true);
+      fetchPrice();
     };
 
-    connect();
+    // Initial fetch
+    updatePrice();
 
-    return () => {
-      if (ws) {
-        ws.disconnect();
-      }
-    };
-  }, [token]);
+    // Set up polling every 10 seconds
+    const interval = setInterval(updatePrice, 10000);
 
-  return { price, timestamp, isConnecting, error };
+    return () => clearInterval(interval);
+  }, []);
+
+  return { price, change24h, timestamp, isLoading, error };
 };

@@ -21,19 +21,19 @@ interface MarketData {
 export default function MarketPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const { price, error: priceError } = usePriceFeed('ory_at_jK3k--5XuJiBOvsUNAdefykX6EuVVfKFlq1mLa2jicI.7DzbHVNRCXFLzj4zO0DHquTeGt9UNWtAD6tywCdyBHs');
+  const { price, change24h, isLoading, error } = usePriceFeed('ory_at_jK3k--5XuJiBOvsUNAdefykX6EuVVfKFlq1mLa2jicI.7DzbHVNRCXFLzj4zO0DHquTeGt9UNWtAD6tywCdyBHs');
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
+  const [errorChat, setErrorChat] = useState<string | null>(null);
   const [marketData, setMarketData] = useState<MarketData>({
     signal: 'Neutral',
     confidence: 13,
     price: price || 0,
-    change: -2.34,
+    change: change24h || -2.34,
     volume: '1.2B',
     marketCap: '44.5B',
   });
@@ -51,8 +51,17 @@ export default function MarketPage() {
     }
   }, [price]);
 
-  if (priceError) {
-    console.error('Price feed error:', priceError);
+  useEffect(() => {
+    if (change24h) {
+      setMarketData(prev => ({
+        ...prev,
+        change: change24h
+      }));
+    }
+  }, [change24h]);
+
+  if (error) {
+    console.error('Price feed error:', error);
   }
 
   if (loading) {
@@ -160,7 +169,7 @@ export default function MarketPage() {
               </Card>
             ))
             }
-            {isLoading && (
+            {isLoadingMessage && (
               <Card className="bg-[#1C2620]/40 border-[#36C58C]/20 p-4 mb-4">
                 <p className="text-[#36C58C]">Thinking...</p>
               </Card>
@@ -190,9 +199,9 @@ export default function MarketPage() {
                 };
                 setMessages(prev => [...prev, userMessage]);
                 setMessage('');
-                setIsLoading(true);
+                setIsLoadingMessage(true);
                 
-                setError(null);
+                setErrorChat(null);
                 try {
                   const response = await fetch('/api/chat', {
                     method: 'POST',
@@ -236,15 +245,15 @@ export default function MarketPage() {
                   }
                 } catch (error) {
                   console.error('Chat error:', error);
-                  setError(error instanceof Error ? error.message : 'An unexpected error occurred');
+                  setErrorChat(error instanceof Error ? error.message : 'An unexpected error occurred');
                 } finally {
-                  setIsLoading(false);
+                  setIsLoadingMessage(false);
                 }
               }}
-              disabled={isLoading || !message.trim()}
+              disabled={isLoadingMessage || !message.trim()}
             >
               <Send className="w-4 h-4 mr-2" />
-              {isLoading ? 'Sending...' : 'Send'}
+              {isLoadingMessage ? 'Sending...' : 'Send'}
             </Button>
           </div>
         </div>
