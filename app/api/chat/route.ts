@@ -1,6 +1,7 @@
-import { OpenAIStream, StreamingTextResponse } from 'ai';
+import { Message } from 'ai';
 
 // Allow streaming responses up to 30 seconds
+export const runtime = 'edge';
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
@@ -22,7 +23,10 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: 'sonar-medium-online',
-        messages,
+        messages: messages.map((m: Message) => ({
+          role: m.role,
+          content: m.content
+        })),
         stream: true
       })
     });
@@ -32,16 +36,22 @@ export async function POST(req: Request) {
       throw new Error(`Perplexity API error: ${response.statusText}`);
     }
 
-    // Create a stream from the response
-    const stream = OpenAIStream(response);
-
-    // Return a StreamingTextResponse, which can be consumed by the client
-    return new StreamingTextResponse(stream);
+    // Return streaming response
+    return new Response(response.body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (error) {
     console.error('Chat API error:', error);
     return new Response(
       JSON.stringify({ error: 'An error occurred during your request.' }),
-      { status: 500 }
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   }
 }
