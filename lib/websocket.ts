@@ -1,11 +1,9 @@
-// Browser-native WebSocket is used instead of 'ws' package
+import WebSocket from 'ws';
 
 export class BitqueryWebSocket {
   private ws: WebSocket | null = null;
-  private token: string;
-  private onPriceUpdate: (price: number, timestamp: number) => void;
   private baseUrl: string;
-  private reconnectAttempts = 0;
+  private onPriceUpdate: (price: number, timestamp: number) => void;
   private maxReconnectAttempts = 3;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private reconnectDelay = 1000;
@@ -13,39 +11,41 @@ export class BitqueryWebSocket {
   private lastTimestamp: number | null = null;
 
   constructor(
-    token: string,
-    onPriceUpdate: (price: number, timestamp: number) => void,
-    baseUrl: string = typeof window !== 'undefined' ? 
-      window.location.origin : 
-      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+    private token: string,
+    onPriceUpdate: (price: number, timestamp: number) => void
   ) {
-    this.token = token;
     this.onPriceUpdate = onPriceUpdate;
-    this.baseUrl = baseUrl;
+    this.baseUrl = process.env.NODE_ENV === 'production'
+      ? 'https://txbt2-g2kb757xg-deep-seam-ai.vercel.app'
+      : 'http://localhost:3000';
   }
 
-  async connect() {
+  public async connect(): Promise<void> {
     try {
+      console.log('Connecting to WebSocket...');
       await this.fetchInitialPrice();
       await this.establishWebSocketConnection();
     } catch (error) {
-      console.error('Failed to initialize price feed:', error);
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.handleReconnect();
-      }
+      console.error('Connection error:', error);
+      this.handleReconnect();
+    }
+  }
+
+  public disconnect(): void {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
   }
 
   private async fetchInitialPrice(): Promise<void> {
     console.log('Fetching initial price...');
-    
-    // Determine the base URL based on environment
-    const baseUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://txbt2-1zx0qawrh-deep-seam-ai.vercel.app' 
-      : 'http://localhost:3000';
-    
     try {
-      const response = await fetch(`${baseUrl}/api/price`, {
+      const response = await fetch(`${this.baseUrl}/api/price`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -70,7 +70,6 @@ export class BitqueryWebSocket {
       this.lastTimestamp = data.timestamp;
       console.log('Updated initial price:', this.lastPrice, 'timestamp:', this.lastTimestamp);
       
-      // Only call onPriceUpdate if we have valid data
       if (typeof this.lastPrice === 'number' && typeof this.lastTimestamp === 'number') {
         this.onPriceUpdate(this.lastPrice, this.lastTimestamp);
       }
@@ -102,55 +101,68 @@ export class BitqueryWebSocket {
         console.log('Successfully connected');
         clearTimeout(connectionTimeout);
 
-        // Send connection init message with token
+        // Send connection init message
         this.ws?.send(JSON.stringify({
-          type: 'connection_init',
-          payload: {
-            headers: {
-              'Authorization': `Bearer ${this.token}`
-            }
-          }
+          type: 'connection_init'
         }));
 
-        // Subscribe to price updates
-        setTimeout(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-              id: '1',
-              type: 'start',
-              payload: {
-                variables: {},
-                extensions: {},
-                operationName: 'BitcoinPrice',
-                query: `subscription BitcoinPrice {
-                  Bitcoin_USD: Trade(orderBy: {Block: {Time: DESC}}, limit: 1) {
-                    Block {
-                      Time
+        this.ws?.addEventListener('message', (event) => {
+          try {
+            const response = JSON.parse(event.data.toString());
+            
+            if (response.type === 'connection_ack') {
+              console.log('Connection acknowledged by server');
+              
+              // Start subscription
+              this.ws?.send(JSON.stringify({
+                id: '1',
+                type: 'start',
+                payload: {
+                  query: `
+                    subscription {
+                      EVM(network: ethereum) {
+                        Blocks {
+                          Block {
+                            Time
+                          }
+                          Price(calculate: maximum, in: USD) {
+                            Amount
+                            Currency {
+                              Symbol
+                            }
+                          }
+                        }
+                      }
                     }
-                    Buy {
-                      AmountInUSD
-                    }
-                  }
-                }`
-              }
-            }));
+                  `
+                }
+              }));
+            }
+            
+            if (response.type === 'data' && response.payload.data) {
+              const block = response.payload.data.EVM.Blocks[0];
+              const price = block.Price.Amount;
+              const timestamp = new Date(block.Block.Time).getTime();
+              
+              console.log('Received price update:', price, 'timestamp:', timestamp);
+              this.onPriceUpdate(price, timestamp);
+            }
+
+            if (response.type === 'ka') {
+              console.log('Keep-alive message received');
+            }
+
+            if (response.type === 'error') {
+              console.error('WebSocket error:', response.payload);
+              this.handleReconnect();
+            }
+
+          } catch (error) {
+            console.error('Error processing WebSocket message:', error);
           }
-        }, 1000);
+        });
 
         resolve();
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'data' && data.payload?.data?.Bitcoin_USD?.[0]) {
-            const price = data.payload.data.Bitcoin_USD[0].Buy.AmountInUSD;
-            const timestamp = new Date(data.payload.data.Bitcoin_USD[0].Block.Time).getTime();
-            this.onPriceUpdate(price, timestamp);
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-        }
       };
 
       this.ws.onerror = (error) => {
@@ -159,46 +171,23 @@ export class BitqueryWebSocket {
         reject(error);
       };
 
-      this.ws.onclose = (event) => {
-        console.log('WebSocket connection closed:', event.code);
-        clearTimeout(connectionTimeout);
+      this.ws.onclose = () => {
+        console.log('WebSocket connection closed');
         this.handleReconnect();
       };
     });
   }
 
-  private handleReconnect() {
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
-    console.log(`Scheduling reconnect attempt in ${delay}ms`);
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
-    this.reconnectTimeout = setTimeout(async () => {
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.reconnectAttempts++;
-        console.log(`Retry attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-        try {
-          await this.connect();
-          console.log('Successfully reconnected');
-          this.reconnectAttempts = 0;
-        } catch (error) {
-          console.log(`Retry attempt ${this.reconnectAttempts} failed:`, error);
-        }
-      } else {
-        console.error('Max retries exceeded, please check your API token and network connection');
-      }
-    }, delay);
-  }
-
-  disconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+  private handleReconnect(): void {
+    if (this.maxReconnectAttempts > 0) {
+      console.log(`Attempting to reconnect in ${this.reconnectDelay}ms...`);
+      this.reconnectTimeout = setTimeout(() => {
+        this.maxReconnectAttempts--;
+        this.connect();
+      }, this.reconnectDelay);
+      this.reconnectDelay *= 2; // Exponential backoff
+    } else {
+      console.error('Max reconnection attempts reached');
     }
   }
 }
