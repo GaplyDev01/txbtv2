@@ -1,55 +1,28 @@
-import { Message } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { streamText } from 'ai';
 
-export const runtime = 'edge';
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
+
+const perplexity = createOpenAI({
+  name: 'perplexity',
+  apiKey: process.env.PERPLEXITY_API_KEY ?? '',
+  baseURL: 'https://api.perplexity.ai/',
+});
 
 export async function POST(req: Request) {
   try {
+    // Extract the messages from the body of the request
     const { messages } = await req.json();
 
-    if (!process.env.PERPLEXITY_API_KEY) {
-      throw new Error('PERPLEXITY_API_KEY is not configured');
-    }
-
-    const response = await fetch('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'sonar',
-        messages: messages.map((m: Message) => ({
-          role: m.role,
-          content: m.content
-        })),
-        max_tokens: 2048,
-        temperature: 0.2,
-        top_p: 0.9,
-        top_k: 0,
-        stream: true,
-        presence_penalty: 0,
-        frequency_penalty: 1
-      })
+    // Call the language model
+    const result = streamText({
+      model: perplexity('llama-3.1-sonar-large-32k-online'),
+      messages,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Perplexity API request failed: ${error}`);
-    }
-
-    // Ensure the response body is valid before streaming
-    if (!response.body) {
-      throw new Error('No response body received from Perplexity API');
-    }
-
-    // Return streaming response
-    return new Response(response.body, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    });
+    // Respond with the stream
+    return result.toDataStreamResponse();
   } catch (error) {
     console.error('Chat API error:', error);
     return new Response(
