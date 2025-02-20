@@ -1,20 +1,15 @@
 import { Message } from 'ai';
 
-// Allow streaming responses up to 30 seconds
 export const runtime = 'edge';
-export const maxDuration = 30;
 
 export async function POST(req: Request) {
   try {
-    // Extract the messages from the body of the request
     const { messages } = await req.json();
 
-    // Make sure we have an API key
     if (!process.env.PERPLEXITY_API_KEY) {
-      throw new Error('Missing Perplexity API key');
+      throw new Error('PERPLEXITY_API_KEY is not configured');
     }
 
-    // Call Perplexity API
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -22,18 +17,29 @@ export async function POST(req: Request) {
         'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'sonar-medium-online',
+        model: 'sonar',
         messages: messages.map((m: Message) => ({
           role: m.role,
           content: m.content
         })),
-        stream: true
+        max_tokens: 2048,
+        temperature: 0.2,
+        top_p: 0.9,
+        top_k: 0,
+        stream: true,
+        presence_penalty: 0,
+        frequency_penalty: 1
       })
     });
 
-    // Check for errors
     if (!response.ok) {
-      throw new Error(`Perplexity API error: ${response.statusText}`);
+      const error = await response.text();
+      throw new Error(`Perplexity API request failed: ${error}`);
+    }
+
+    // Ensure the response body is valid before streaming
+    if (!response.body) {
+      throw new Error('No response body received from Perplexity API');
     }
 
     // Return streaming response
@@ -47,8 +53,11 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Chat API error:', error);
     return new Response(
-      JSON.stringify({ error: 'An error occurred during your request.' }),
-      { 
+      JSON.stringify({
+        error: 'Failed to process chat request',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      }),
+      {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       }
