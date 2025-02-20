@@ -32,13 +32,12 @@ export async function POST(req: Request) {
       return acc;
     }, []);
 
-    console.log('Making request to Perplexity API');
+    console.log('Making request to Perplexity API with messages:', validatedMessages);
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-        'Accept': 'text/event-stream'
+        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`
       },
       body: JSON.stringify({
         model: 'sonar-reasoning-pro',
@@ -68,44 +67,60 @@ export async function POST(req: Request) {
 
     console.log('Successfully received response from Perplexity');
 
-    // Transform the response into the format expected by the Vercel AI SDK
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
+    // Create a readable stream from the response and pipe it through a transform stream
+    const reader = response.body.getReader();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    let buffer = '';
+    const stream = new ReadableStream({
+      async start(controller) {
         try {
-          const text = new TextDecoder().decode(chunk);
-          const lines = text.split('\n').filter(line => line.trim() !== '');
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.trim() === '') continue;
+              if (!line.startsWith('data: ')) continue;
+
               const data = line.slice(6);
+              console.log('Received data:', data);
+
               if (data === '[DONE]') {
-                controller.terminate();
+                controller.close();
                 return;
               }
-              
+
               try {
                 const json = JSON.parse(data);
-                const token = json.choices[0]?.delta?.content || '';
-                if (token) {
-                  const aiMessage = {
-                    id: json.id,
+                console.log('Parsed JSON:', json);
+                const content = json.choices[0]?.delta?.content || '';
+                if (content) {
+                  const chunk = encoder.encode(`data: ${JSON.stringify({
+                    id: json.id || Date.now().toString(),
                     role: 'assistant',
-                    content: token
-                  };
-                  controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(aiMessage)}\n\n`));
+                    content: content
+                  })}\n\n`);
+                  controller.enqueue(chunk);
                 }
               } catch (e) {
-                console.error('Error parsing JSON:', e);
+                console.error('Error parsing chunk:', e);
               }
             }
           }
         } catch (e) {
-          console.error('Error in transform:', e);
+          console.error('Error in stream processing:', e);
+          controller.error(e);
         }
       }
     });
 
-    return new Response(response.body.pipeThrough(transformStream), {
+    return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
