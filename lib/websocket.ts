@@ -9,6 +9,8 @@ export class BitqueryWebSocket {
   private maxReconnectAttempts = 3;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private reconnectDelay = 1000;
+  private lastPrice: number | null = null;
+  private lastTimestamp: number | null = null;
 
   constructor(
     token: string,
@@ -35,8 +37,15 @@ export class BitqueryWebSocket {
   }
 
   private async fetchInitialPrice(): Promise<void> {
+    console.log('Fetching initial price...');
+    
+    // Determine the base URL based on environment
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://txbt2-1zx0qawrh-deep-seam-ai.vercel.app' 
+      : 'http://localhost:3000';
+    
     try {
-      const response = await fetch(`${this.baseUrl}/api/price`, {
+      const response = await fetch(`${baseUrl}/api/price`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -44,18 +53,25 @@ export class BitqueryWebSocket {
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`Failed to fetch price data: ${errorData}`);
+        const errorData = await response.json();
+        console.error('Price fetch error response:', errorData);
+        throw new Error(`Failed to fetch price data: ${JSON.stringify(errorData)}`);
       }
 
       const data = await response.json();
-      if (!data.price) {
-        throw new Error('Invalid price data received from API');
+      console.log('Initial price data:', data);
+
+      if (!data.price || !data.timestamp) {
+        console.error('Invalid price data:', data);
+        throw new Error('Invalid price data format');
       }
 
-      this.onPriceUpdate(data.price, Date.now());
+      this.lastPrice = data.price;
+      this.lastTimestamp = data.timestamp;
+      console.log('Updated initial price:', this.lastPrice, 'timestamp:', this.lastTimestamp);
+      this.onPriceUpdate(this.lastPrice, this.lastTimestamp);
     } catch (error) {
-      console.error('Price fetch error:', error);
+      console.error('Failed to fetch initial price:', error);
       throw new Error(`Failed to fetch initial price: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

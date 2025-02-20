@@ -8,7 +8,7 @@ export const corsMiddleware = (req: NextApiRequest, res: NextApiResponse) => {
   // Allow requests from Vercel deployment and localhost
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'https://txbt2-r8bmaemsj-deep-seam-ai.vercel.app',
+    'https://txbt2-1zx0qawrh-deep-seam-ai.vercel.app',
     'http://localhost:3000'
   ];
   
@@ -46,12 +46,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const query = `
       query {
-        Bitcoin_USD: Trade(orderBy: {Block: {Time: DESC}}, limit: 1) {
-          Block {
-            Time
-          }
-          Buy {
-            AmountInUSD
+        EVM(dataset: combined, network: ethereum) {
+          DEXTrades(
+            orderBy: {Block: {Time: DESC}}
+            where: {Trade: {Currency: {SmartContract: {is: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"}}}}
+            limit: 1
+          ) {
+            Block {
+              Time
+            }
+            Trade {
+              Price
+            }
           }
         }
       }
@@ -78,13 +84,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const data = await response.json();
     console.log('Bitquery API response data:', JSON.stringify(data, null, 2));
     
-    if (!data.data?.Bitcoin_USD?.[0]) {
+    if (!data.data?.EVM?.DEXTrades?.[0]) {
       console.error('Invalid data structure received:', data);
       throw new Error('No price data available');
     }
 
-    const price = data.data.Bitcoin_USD[0].Buy.AmountInUSD;
-    const timestamp = new Date(data.data.Bitcoin_USD[0].Block.Time).getTime();
+    const price = data.data.EVM.DEXTrades[0].Trade.Price;
+    const timestamp = new Date(data.data.EVM.DEXTrades[0].Block.Time).getTime();
 
     console.log('Sending successful response:', { price, timestamp });
     res.status(200).json({ price, timestamp });
