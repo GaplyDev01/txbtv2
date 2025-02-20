@@ -1,5 +1,4 @@
 import { Message } from 'ai';
-import { StreamingTextResponse } from 'ai';
 
 export const runtime = 'edge';
 
@@ -44,7 +43,13 @@ export async function POST(req: Request) {
     }
 
     // Return streaming response
-    return new StreamingTextResponse(response.body);
+    return new Response(response.body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (error) {
     console.error('Chat API error:', error);
     return new Response(

@@ -20,7 +20,8 @@ export function usePriceFeed(token: string) {
     if (isConnecting) return;
 
     setIsConnecting(true);
-    const ws = new BitqueryWebSocket(token, handlePriceUpdate);
+    const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+    const ws = new BitqueryWebSocket(token, handlePriceUpdate, baseUrl);
 
     try {
       ws.connect();

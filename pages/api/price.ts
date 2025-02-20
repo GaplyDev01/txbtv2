@@ -1,114 +1,94 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { NextApiRequest, NextApiResponse } from 'next';
 
-type PriceResponse = {
-  price?: number;
-  error?: string;
-};
+// Bitquery GraphQL endpoint
+const BITQUERY_ENDPOINT = 'https://graphql.bitquery.io';
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<PriceResponse>
-) {
-  // Add CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
-
-  // Handle preflight request
+// Handle CORS preflight requests
+export const corsMiddleware = (req: NextApiRequest, res: NextApiResponse) => {
+  // Allow requests from Vercel deployment and localhost
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://txbt2-r8bmaemsj-deep-seam-ai.vercel.app',
+    'http://localhost:3000'
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-KEY');
+  
   if (req.method === 'OPTIONS') {
     res.status(200).end();
-    return;
+    return true;
   }
+  return false;
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Handle CORS preflight
+  if (corsMiddleware(req, res)) return;
 
   if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!process.env.BITQUERY_TOKEN) {
-    console.error('Bitquery authentication not configured');
-    return res.status(500).json({ error: 'Service configuration error' });
-  }
-
   try {
-    console.log('Fetching price data from Bitquery...');
     const token = process.env.BITQUERY_TOKEN;
-    console.log('Request details:', {
-      url: 'https://streaming.bitquery.io/graphql',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      }
-    });
+    if (!token) {
+      console.error('BITQUERY_TOKEN is not set');
+      throw new Error('BITQUERY_TOKEN environment variable is not set');
+    }
 
-    const response = await fetch('https://streaming.bitquery.io/graphql', {
+    const query = `
+      query {
+        Bitcoin_USD: Trade(orderBy: {Block: {Time: DESC}}, limit: 1) {
+          Block {
+            Time
+          }
+          Buy {
+            AmountInUSD
+          }
+        }
+      }
+    `;
+
+    console.log('Fetching price data from Bitquery...');
+    const response = await fetch(BITQUERY_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'X-API-KEY': token,
       },
-      body: JSON.stringify({
-        query: `
-          {
-            EVM(network: eth) {
-              DEXTrades(
-                limit: {count: 1}
-                where: {Trade: {Buy: {Currency: {SmartContract: {is: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"}}}}}
-              ) {
-                Block {
-                  Time
-                }
-                Trade {
-                  Buy {
-                    AmountInUSD
-                  }
-                }
-              }
-            }
-          }
-        `
-      }),
-    });
-
-    console.log('Response details:', {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries())
+      body: JSON.stringify({ query }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.log('Full error response:', {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries()),
-        body: errorText
-      });
-      throw new Error(`HTTP error! status: ${response.status}`);
+      console.error('Bitquery API error:', errorText);
+      throw new Error(`Bitquery API error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('Received data from Bitquery:', JSON.stringify(data, null, 2));
+    console.log('Received data:', JSON.stringify(data, null, 2));
     
-    if (!data.data?.EVM?.DEXTrades?.[0]?.Trade?.Buy?.AmountInUSD) {
-      console.error('Invalid data structure:', data);
-      throw new Error('No price data found in response');
+    if (!data.data?.Bitcoin_USD?.[0]) {
+      console.error('No price data in response:', data);
+      throw new Error('No price data available');
     }
 
-    const price = Number(data.data.EVM.DEXTrades[0].Trade.Buy.AmountInUSD);
-    console.log('Extracted price:', price);
+    const price = data.data.Bitcoin_USD[0].Buy.AmountInUSD;
+    const timestamp = new Date(data.data.Bitcoin_USD[0].Block.Time).getTime();
 
-    if (isNaN(price) || price <= 0) {
-      throw new Error('Invalid price value');
-    }
-
-    return res.status(200).json({ price });
+    console.log('Sending price response:', { price, timestamp });
+    res.status(200).json({ price, timestamp });
   } catch (error) {
-    console.error('Error in price API:', error);
-    return res.status(500).json({ error: 'Failed to fetch price data' });
+    console.error('Price API error:', error);
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
   }
 }

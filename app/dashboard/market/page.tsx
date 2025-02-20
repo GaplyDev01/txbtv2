@@ -183,7 +183,11 @@ export default function MarketPage() {
               onClick={async () => {
                 if (!message.trim()) return;
                 
-                const userMessage = { role: 'user', content: message };
+                const userMessage: Message = { 
+                  role: 'user' as const, 
+                  content: message,
+                  id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                };
                 setMessages(prev => [...prev, userMessage]);
                 setMessage('');
                 setIsLoading(true);
@@ -207,7 +211,11 @@ export default function MarketPage() {
                   if (!reader) throw new Error('No response stream available');
                   
                   const decoder = new TextDecoder();
-                  let assistantMessage = { role: 'assistant', content: '' };
+                  let assistantMessage: Message = { 
+                    role: 'assistant' as const, 
+                    content: '',
+                    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                  };
                   
                   while (true) {
                     const { done, value } = await reader.read();

@@ -1,4 +1,15 @@
 {
+  "version": 2,
+  "env": {
+    "BITQUERY_TOKEN": "@bitquery_token",
+    "PERPLEXITY_API_KEY": "@perplexity_api_key"
+  },
+  "build": {
+    "env": {
+      "BITQUERY_TOKEN": "@bitquery_token",
+      "PERPLEXITY_API_KEY": "@perplexity_api_key"
+    }
+  },
   "buildCommand": "next build",
   "devCommand": "next dev",
   "installCommand": "npm install",
