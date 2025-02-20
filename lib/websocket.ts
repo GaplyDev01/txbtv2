@@ -1,11 +1,9 @@
-import WebSocket from 'ws';
-
 export class BitqueryWebSocket {
   private ws: WebSocket | null = null;
   private baseUrl: string;
   private onPriceUpdate: (price: number, timestamp: number) => void;
   private maxReconnectAttempts = 3;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
   private lastPrice: number | null = null;
   private lastTimestamp: number | null = null;
@@ -15,9 +13,11 @@ export class BitqueryWebSocket {
     onPriceUpdate: (price: number, timestamp: number) => void
   ) {
     this.onPriceUpdate = onPriceUpdate;
-    this.baseUrl = process.env.NODE_ENV === 'production'
-      ? 'https://txbt2-g2kb757xg-deep-seam-ai.vercel.app'
-      : 'http://localhost:3000';
+    this.baseUrl = typeof window !== 'undefined' 
+      ? window.location.origin
+      : process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000';
   }
 
   public async connect(): Promise<void> {

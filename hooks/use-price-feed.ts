@@ -1,42 +1,48 @@
-import { useState, useEffect, useCallback } from 'react';
-import { BitqueryWebSocket } from '@/lib/websocket';
+import { useEffect, useState } from 'react';
+import { BitqueryWebSocket } from '../lib/websocket';
 
-export function usePriceFeed(token: string) {
+export const usePriceFeed = (token: string) => {
   const [price, setPrice] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [timestamp, setTimestamp] = useState<number | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handlePriceUpdate = useCallback((newPrice: number) => {
+  const handlePriceUpdate = (newPrice: number, newTimestamp: number) => {
     setPrice(newPrice);
-    setError(null);
-  }, []);
+    setTimestamp(newTimestamp);
+  };
 
   useEffect(() => {
-    if (!token) {
-      setError('Bitquery token is required');
-      return;
-    }
+    let ws: BitqueryWebSocket | null = null;
 
-    if (isConnecting) return;
+    const connect = async () => {
+      setError(null);
+      setIsConnecting(true);
+      ws = new BitqueryWebSocket(token, handlePriceUpdate);
 
-    setIsConnecting(true);
-    const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
-    const ws = new BitqueryWebSocket(token, handlePriceUpdate, baseUrl);
+      try {
+        ws.connect()
+          .then(() => {
+            setIsConnecting(false);
+          })
+          .catch((error) => {
+            setError(error.message);
+            setIsConnecting(false);
+          });
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'Failed to connect');
+        setIsConnecting(false);
+      }
+    };
 
-    try {
-      ws.connect();
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to connect to price feed';
-      console.error('Price feed error:', errorMessage);
-      setError(errorMessage);
-    } finally {
-      setIsConnecting(false);
-    }
+    connect();
 
     return () => {
-      ws.disconnect();
+      if (ws) {
+        ws.disconnect();
+      }
     };
-  }, [token, handlePriceUpdate, isConnecting]);
+  }, [token]);
 
-  return { price, error, isConnecting };
-}
+  return { price, timestamp, isConnecting, error };
+};
