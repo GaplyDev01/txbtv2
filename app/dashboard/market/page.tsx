@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Search, Settings2, ArrowUp, ArrowDown, TrendingUp, BarChart2, LineChart, PanelLeftClose, PanelRightClose, Send } from 'lucide-react';
+import { Message } from 'ai';
 
 interface MarketData {
   signal: string;
@@ -23,7 +24,10 @@ export default function MarketPage() {
   const { price, error: priceError } = usePriceFeed('ory_at_jK3k--5XuJiBOvsUNAdefykX6EuVVfKFlq1mLa2jicI.7DzbHVNRCXFLzj4zO0DHquTeGt9UNWtAD6tywCdyBHs');
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [marketData, setMarketData] = useState<MarketData>({
     signal: 'Neutral',
@@ -145,7 +149,22 @@ export default function MarketPage() {
                 technical analysis, or trading strategies.
               </p>
             </Card>
-            {/* Chat messages will be rendered here */}
+            {messages.map((msg, index) => (
+              <Card
+                key={index}
+                className={`p-4 mb-4 ${msg.role === 'assistant' ? 'bg-[#1C2620]/40' : 'bg-[#243830]/40'} border-[#36C58C]/20`}
+              >
+                <p className={msg.role === 'assistant' ? 'text-[#36C58C]' : 'text-white'}>
+                  {msg.content}
+                </p>
+              </Card>
+            ))
+            }
+            {isLoading && (
+              <Card className="bg-[#1C2620]/40 border-[#36C58C]/20 p-4 mb-4">
+                <p className="text-[#36C58C]">Thinking...</p>
+              </Card>
+            )}
           </div>
         </div>
 
@@ -159,9 +178,65 @@ export default function MarketPage() {
               onChange={(e) => setMessage(e.target.value)}
               className="flex-1 bg-[#1C2620]/60 border-[#36C58C]/50 text-white placeholder:text-gray-500"
             />
-            <Button className="bg-[#36C58C] hover:bg-[#36C58C]/90 text-black">
+            <Button 
+              className="bg-[#36C58C] hover:bg-[#36C58C]/90 text-black"
+              onClick={async () => {
+                if (!message.trim()) return;
+                
+                const userMessage = { role: 'user', content: message };
+                setMessages(prev => [...prev, userMessage]);
+                setMessage('');
+                setIsLoading(true);
+                
+                setError(null);
+                try {
+                  const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      messages: [...messages, userMessage]
+                    })
+                  });
+                  
+                  if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.details || 'Failed to send message');
+                  }
+                  
+                  const reader = response.body?.getReader();
+                  if (!reader) throw new Error('No response stream available');
+                  
+                  const decoder = new TextDecoder();
+                  let assistantMessage = { role: 'assistant', content: '' };
+                  
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    assistantMessage.content += chunk;
+                    
+                    setMessages(prev => {
+                      const newMessages = [...prev];
+                      if (newMessages[newMessages.length - 1]?.role === 'assistant') {
+                        newMessages[newMessages.length - 1] = { ...assistantMessage };
+                      } else {
+                        newMessages.push({ ...assistantMessage });
+                      }
+                      return newMessages;
+                    });
+                  }
+                } catch (error) {
+                  console.error('Chat error:', error);
+                  setError(error instanceof Error ? error.message : 'An unexpected error occurred');
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
+              disabled={isLoading || !message.trim()}
+            >
               <Send className="w-4 h-4 mr-2" />
-              Send
+              {isLoading ? 'Sending...' : 'Send'}
             </Button>
           </div>
         </div>
