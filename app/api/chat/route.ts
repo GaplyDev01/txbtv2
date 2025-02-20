@@ -21,18 +21,12 @@ export async function POST(req: Request) {
         'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'sonar-medium-online',
+        model: 'sonar-pro',
         messages: messages.map((m: Message) => ({
           role: m.role,
           content: m.content
         })),
-        max_tokens: 2048,
-        temperature: 0.2,
-        top_p: 0.9,
-        top_k: 0,
-        stream: true,
-        presence_penalty: 0,
-        frequency_penalty: 1
+        stream: true
       })
     });
 
