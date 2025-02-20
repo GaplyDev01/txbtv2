@@ -69,7 +69,11 @@ export class BitqueryWebSocket {
       this.lastPrice = data.price;
       this.lastTimestamp = data.timestamp;
       console.log('Updated initial price:', this.lastPrice, 'timestamp:', this.lastTimestamp);
-      this.onPriceUpdate(this.lastPrice, this.lastTimestamp);
+      
+      // Only call onPriceUpdate if we have valid data
+      if (typeof this.lastPrice === 'number' && typeof this.lastTimestamp === 'number') {
+        this.onPriceUpdate(this.lastPrice, this.lastTimestamp);
+      }
     } catch (error) {
       console.error('Failed to fetch initial price:', error);
       throw new Error(`Failed to fetch initial price: ${error instanceof Error ? error.message : 'Unknown error'}`);
