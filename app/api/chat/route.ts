@@ -13,6 +13,25 @@ export async function POST(req: Request) {
       throw new Error('PERPLEXITY_API_KEY is not configured');
     }
 
+    // Ensure messages alternate between user and assistant
+    const validatedMessages = messages.reduce((acc: Message[], curr: Message, i: number) => {
+      // Allow system messages at the start
+      if (curr.role === 'system' && i === 0) {
+        return [...acc, curr];
+      }
+      
+      // For non-system messages, ensure alternating pattern
+      const prevMessage = acc[acc.length - 1];
+      if (!prevMessage || 
+          (prevMessage.role === 'user' && curr.role === 'assistant') ||
+          (prevMessage.role === 'assistant' && curr.role === 'user') ||
+          (prevMessage.role === 'system' && curr.role === 'user')) {
+        return [...acc, curr];
+      }
+      
+      return acc;
+    }, []);
+
     console.log('Making request to Perplexity API');
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
@@ -22,7 +41,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: 'sonar-reasoning-pro',
-        messages: messages.map((m: Message) => ({
+        messages: validatedMessages.map((m: Message) => ({
           role: m.role,
           content: m.content
         })),
