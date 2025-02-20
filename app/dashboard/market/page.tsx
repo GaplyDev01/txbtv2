@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Send } from 'lucide-react';
 import { usePriceFeed } from '@/hooks/use-price-feed';
+import { useChat } from 'ai/react';
 
 interface Message {
   role: string;
@@ -25,13 +26,8 @@ export default function MarketPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const { price, change24h, isLoading, error } = usePriceFeed();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
-  const [errorChat, setErrorChat] = useState<string | null>(null);
   const [marketData, setMarketData] = useState<MarketData>({
     signal: 'Neutral',
     confidence: 13,
@@ -39,6 +35,13 @@ export default function MarketPage() {
     change: change24h || -2.34,
     volume: '1.2B',
     marketCap: '44.5B',
+  });
+
+  const { messages, input, handleInputChange, handleSubmit, isLoading: isLoadingMessage } = useChat({
+    api: '/api/chat',
+    body: {
+      marketData,
+    },
   });
 
   useEffect(() => {
@@ -131,8 +134,7 @@ export default function MarketPage() {
                 {msg.content}
               </p>
             </Card>
-          ))
-          }
+          ))}
           {isLoadingMessage && (
             <Card className="bg-[#1C2620]/40 border-[#36C58C]/20 p-4 mb-4">
               <p className="text-[#36C58C]">Thinking...</p>
@@ -140,77 +142,25 @@ export default function MarketPage() {
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-800">
+        <form onSubmit={handleSubmit} className="p-4 border-t border-gray-800">
           <div className="flex gap-2">
             <input
               type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              value={input}
+              onChange={handleInputChange}
               placeholder="Ask about market conditions..."
               className="flex-1 bg-[#1C1E20] text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#36C58C]"
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  document.getElementById('send-button')?.click();
-                }
-              }}
             />
             <Button
-              id="send-button"
+              type="submit"
               className="bg-[#36C58C] hover:bg-[#36C58C]/80 text-black"
-              onClick={async () => {
-                const userMessage = {
-                  role: 'user',
-                  content: message,
-                };
-                setMessages(prev => [...prev, userMessage]);
-                setMessage('');
-                setIsLoadingMessage(true);
-                
-                setErrorChat(null);
-                try {
-                  const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      message: userMessage.content,
-                      marketData,
-                    }),
-                  });
-
-                  if (!response.ok) {
-                    throw new Error('Failed to get response');
-                  }
-
-                  const data = await response.json();
-                  
-                  if (data.error) {
-                    throw new Error(data.error);
-                  }
-
-                  if (data.message) {
-                    const assistantMessage = {
-                      role: 'assistant',
-                      content: data.message,
-                    };
-                    setMessages(prev => [...prev, assistantMessage]);
-                  }
-                } catch (error) {
-                  console.error('Chat error:', error);
-                  setErrorChat(error instanceof Error ? error.message : 'An unexpected error occurred');
-                } finally {
-                  setIsLoadingMessage(false);
-                }
-              }}
-              disabled={isLoadingMessage || !message.trim()}
+              disabled={isLoadingMessage || !input.trim()}
             >
               <Send className="w-4 h-4 mr-2" />
               {isLoadingMessage ? 'Sending...' : 'Send'}
             </Button>
           </div>
-        </div>
+        </form>
       </div>
 
       {/* Right Panel */}
