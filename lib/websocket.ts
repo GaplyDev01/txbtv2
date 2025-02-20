@@ -64,7 +64,7 @@ export class BitqueryWebSocket {
     return new Promise((resolve, reject) => {
       console.log('Establishing WebSocket connection...');
       
-      const wsUrl = `wss://streaming.bitquery.io/graphql`;
+      const wsUrl = `wss://streaming.bitquery.io/graphql?token=${this.token}`;
       console.log('WebSocket URL:', wsUrl);
       
       this.ws = new WebSocket(wsUrl, ['graphql-ws']);
@@ -87,7 +87,7 @@ export class BitqueryWebSocket {
           type: 'connection_init',
           payload: {
             headers: {
-              'X-API-KEY': this.token
+              'Authorization': `Bearer ${this.token}`
             }
           }
         }));

@@ -19,7 +19,7 @@ export const corsMiddleware = (req: NextApiRequest, res: NextApiResponse) => {
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-KEY');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -38,8 +38,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const token = process.env.BITQUERY_TOKEN;
+    console.log('Using Bitquery token:', token ? 'Token exists' : 'Token is missing');
+
     if (!token) {
-      console.error('BITQUERY_TOKEN is not set');
       throw new Error('BITQUERY_TOKEN environment variable is not set');
     }
 
@@ -56,34 +57,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     `;
 
-    console.log('Fetching price data from Bitquery...');
+    console.log('Making request to Bitquery API...');
     const response = await fetch(BITQUERY_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-KEY': token,
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ query }),
     });
 
+    console.log('Bitquery API response status:', response.status);
+    
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Bitquery API error:', errorText);
+      console.error('Bitquery API error response:', errorText);
       throw new Error(`Bitquery API error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('Received data:', JSON.stringify(data, null, 2));
+    console.log('Bitquery API response data:', JSON.stringify(data, null, 2));
     
     if (!data.data?.Bitcoin_USD?.[0]) {
-      console.error('No price data in response:', data);
+      console.error('Invalid data structure received:', data);
       throw new Error('No price data available');
     }
 
     const price = data.data.Bitcoin_USD[0].Buy.AmountInUSD;
     const timestamp = new Date(data.data.Bitcoin_USD[0].Block.Time).getTime();
 
-    console.log('Sending price response:', { price, timestamp });
+    console.log('Sending successful response:', { price, timestamp });
     res.status(200).json({ price, timestamp });
   } catch (error) {
     console.error('Price API error:', error);
