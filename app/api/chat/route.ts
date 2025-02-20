@@ -37,7 +37,8 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`
+        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+        'Accept': 'text/event-stream'
       },
       body: JSON.stringify({
         model: 'sonar-reasoning-pro',
@@ -66,8 +67,45 @@ export async function POST(req: Request) {
     }
 
     console.log('Successfully received response from Perplexity');
-    // Return streaming response
-    return new Response(response.body, {
+
+    // Transform the response into the format expected by the Vercel AI SDK
+    const transformStream = new TransformStream({
+      transform(chunk, controller) {
+        try {
+          const text = new TextDecoder().decode(chunk);
+          const lines = text.split('\n').filter(line => line.trim() !== '');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                controller.terminate();
+                return;
+              }
+              
+              try {
+                const json = JSON.parse(data);
+                const token = json.choices[0]?.delta?.content || '';
+                if (token) {
+                  const aiMessage = {
+                    id: json.id,
+                    role: 'assistant',
+                    content: token
+                  };
+                  controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(aiMessage)}\n\n`));
+                }
+              } catch (e) {
+                console.error('Error parsing JSON:', e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error in transform:', e);
+        }
+      }
+    });
+
+    return new Response(response.body.pipeThrough(transformStream), {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
